@@ -304,8 +304,10 @@ int jsonwriter_dblf(jsonwriter_handle data, long double d, const char *format_st
                     unsigned char trim_trailing_zeros_after_dec) {
   if (data->depth < JSONWRITER_MAX_NESTING) {
     jsonwriter_indent(data, 0);
-    if (isnan(d)) {
+    if (isnan(d))
       jsonwriter_output_buff_write(&data->out, (unsigned char *)"\"NaN\"", 5);
+    else if (isinf(d)) {
+      jsonwriter_output_buff_write(&data->out, (unsigned char *)"\"Infinity\"", 10);
     } else {
       if (format_string && !strstr(format_string, "Lf")) // TO DO: return error code
         fprintf(stderr, "Warning: format string passed to jsonwriter_dblf() does not contain Lf: %s\n", format_string);
