@@ -1,0 +1,27 @@
+# Dockerized libFuzzer fuzzing of jsonwriter.
+#
+# Runs the libFuzzer target (tests/fuzz.c) inside Linux so it works on macOS --
+# including Apple Silicon -- where Apple clang ships no libFuzzer runtime. The
+# base image is multi-arch, so on an arm64 host Docker runs it natively (no
+# emulation). Built and driven by the Makefile's df-* targets; see `make df-help`.
+FROM ubuntu:24.04
+
+# clang-18 is Ubuntu 24.04's default; libclang-rt-18-dev supplies the libFuzzer
+# and sanitizer runtime static libs (missing from the bare clang metapackage).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      clang libclang-rt-18-dev make binutils gawk libc6-dev ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+COPY . /src
+
+# clang on Linux bundles the libFuzzer runtime; build the fuzz target and stash
+# the binary at a stable path for the entrypoint.
+RUN CC=clang ./configure \
+    && make fuzz FUZZ_CC=clang \
+    && cp "$(make print-builddir | tail -1)/bin/fuzz" /usr/local/bin/jsonwriter-fuzz
+
+# Default: a 60s session seeded from the baked-in corpus. The df-run target
+# overrides these args to mount a writable corpus + artifact dir on the host.
+ENTRYPOINT ["/usr/local/bin/jsonwriter-fuzz"]
+CMD ["-max_total_time=60", "-print_final_stats=1", "tests/corpus"]

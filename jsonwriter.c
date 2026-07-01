@@ -204,30 +204,36 @@ int jsonwriter_end_all(jsonwriter_handle data) {
 
 static int write_json_str(struct jsonwriter_output_buff *b, const unsigned char *s, size_t len,
                           unsigned char no_quotes) {
-  unsigned int replacelen;
-  unsigned char replace[10];
-  const unsigned char *end = s + len;
-  const unsigned char *new_s;
   size_t written = 0;
-  if (!no_quotes)
-    jsonwriter_output_buff_write(b, (const unsigned char *)"\"", 1), written++;
+  if(!len || !s) {
+    if(!no_quotes) {
+      jsonwriter_output_buff_write(b, (const unsigned char *)"\"\"", 2);
+      written += 2;
+    }
+  } else {
+    unsigned int replacelen;
+    unsigned char replace[10];
+    const unsigned char *end = s + len;
+    const unsigned char *new_s;
+    if (!no_quotes)
+      jsonwriter_output_buff_write(b, (const unsigned char *)"\"", 1), written++;
 
-  while (s < end) {
-    replacelen = 0;
-    unsigned int no_esc = json_esc1((const unsigned char *)s, len, &replacelen, replace, &new_s, len + sizeof(replace));
-    if (no_esc)
-      jsonwriter_output_buff_write(b, s, no_esc), written += no_esc;
-    if (replacelen)
-      jsonwriter_output_buff_write(b, replace, replacelen), written += replacelen;
-    if (new_s > s) {
-      s = new_s;
-      len = end - new_s;
-    } else
-      break;
+    while (s < end) {
+      replacelen = 0;
+      unsigned int no_esc = json_esc1((const unsigned char *)s, len, &replacelen, replace, &new_s, len + sizeof(replace));
+      if (no_esc)
+        jsonwriter_output_buff_write(b, s, no_esc), written += no_esc;
+      if (replacelen)
+        jsonwriter_output_buff_write(b, replace, replacelen), written += replacelen;
+      if (new_s > s) {
+        s = new_s;
+        len = end - new_s;
+      } else
+        break;
+    }
+    if (!no_quotes)
+      jsonwriter_output_buff_write(b, (const unsigned char *)"\"", 1), written += 1;
   }
-  if (!no_quotes)
-    jsonwriter_output_buff_write(b, (const unsigned char *)"\"", 1), written += 1;
-
   return written;
 }
 
@@ -289,7 +295,7 @@ int jsonwriter_strn(jsonwriter_handle data, const unsigned char *s, size_t len) 
 int jsonwriter_object_keyn(jsonwriter_handle data, const char *key, size_t len_or_zero) {
   if (data->depth < JSONWRITER_MAX_NESTING) {
     jsonwriter_indent(data, 0);
-    jsonwriter_str1(data, (const unsigned char *)key, len_or_zero == 0 ? JSW_STRLEN(key) : len_or_zero);
+    jsonwriter_str1(data, (const unsigned char *)key, len_or_zero == 0 && key ? JSW_STRLEN(key) : len_or_zero);
     data->just_wrote_key = 1;
     return 0;
   }

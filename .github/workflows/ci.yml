@@ -1,0 +1,148 @@
+name: ci
+
+# Build and test jsonwriter on every pull request and on pushes to main, across
+# the toolchains the library commits to supporting (clang/gcc on Linux and
+# macOS, mingw64 cross-compiled to Windows), plus AddressSanitizer/UBSan, a
+# strict-warnings lane, and a short libFuzzer session.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+  workflow_dispatch:
+
+# Only the latest run for a given branch/PR needs to finish; cancel the rest.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # --------------------------------------------------------------- Linux
+  linux:
+    name: linux (${{ matrix.cc }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        cc: [gcc, clang]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: CC=${{ matrix.cc }} ./configure
+      - name: Build library
+        run: make build
+      - name: Test
+        run: make test
+
+  # AddressSanitizer + UndefinedBehaviorSanitizer (LeakSanitizer is bundled with
+  # ASan on Linux and runs at exit, so this also gates leaks).
+  sanitizers:
+    name: linux (asan+ubsan)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: ./configure
+      - name: Test under sanitizers
+        run: make test ASAN=1
+
+  # Strict-warnings lane: -Werror with extra diagnostics on both compilers.
+  # make requires config.mk (a hard include), so configure first.
+  strict:
+    name: linux (strict-warnings)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: ./configure
+      - name: Strict compile (gcc)
+        run: make strict CC=gcc
+      - name: Strict compile (clang)
+        run: make strict CC=clang
+
+  # --------------------------------------------------------------- macOS
+  macos:
+    name: macos (arm64)
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: ./configure
+      - name: Build library
+        run: make build
+      - name: Test
+        run: make test
+      - name: Leak check (macOS leaks)
+        run: make test-leaks
+
+  # ----------------------------------------------- Windows (mingw cross)
+  # Cross-compile from Linux with mingw-w64. The produced static archive is
+  # PE/COFF and cannot run on the Linux host, so this job builds and verifies the
+  # artifact rather than running the suite.
+  windows-mingw:
+    name: windows (mingw64 cross-compile)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install mingw-w64
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mingw-w64 binutils-mingw-w64
+      - name: Configure (cross to Windows)
+        env:
+          CC: x86_64-w64-mingw32-gcc
+          AR: x86_64-w64-mingw32-ar
+          RANLIB: x86_64-w64-mingw32-ranlib
+        run: ./configure
+      - name: Build library
+        run: make build CC=x86_64-w64-mingw32-gcc AR=x86_64-w64-mingw32-ar RANLIB=x86_64-w64-mingw32-ranlib
+      - name: Verify Windows artifact
+        run: |
+          builddir=$(make print-builddir CC=x86_64-w64-mingw32-gcc | tail -1)
+          lib="$builddir/lib/libjsonwriter.a"
+          ls -l "$lib"
+          x86_64-w64-mingw32-ar t "$lib" | grep -q jsonwriter.o
+          x86_64-w64-mingw32-objdump -a "$lib" | grep -qi 'pe-x86-64'
+
+  # ----------------------------------------------------------- fuzzing
+  # Short libFuzzer session driving the writer + escaping oracle (clang +
+  # libFuzzer), plus the portable standalone replay driver over the seed corpus.
+  # Apple clang lacks libFuzzer, so this Linux job is the canonical fuzz coverage.
+  fuzz:
+    name: linux (fuzz, clang+libFuzzer)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: CC=clang ./configure
+      - name: Build and replay the portable standalone driver
+        run: |
+          make fuzz-standalone
+          bin="$(make print-builddir | tail -1)/bin/fuzz-standalone"
+          "$bin" tests/corpus/*
+      - name: Build the libFuzzer target
+        run: make fuzz FUZZ_CC=clang
+      - name: Fuzz the writer + escaping oracle
+        run: |
+          bin="$(make print-builddir | tail -1)/bin/fuzz"
+          "$bin" -max_total_time=60 -print_final_stats=1 tests/corpus

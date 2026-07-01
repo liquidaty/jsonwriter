@@ -14,9 +14,7 @@ static char UTF8_charLenC(int firstChar) { /* return 0 on eof, -1 on error, > 0 
   else if((firstChar & 224) == 192) len = 2; /* 110xxxxx */
   else if((firstChar & 240) == 224) len = 3; /* 1110xxxx */
   else if((firstChar & 248) == 240) len = 4; /* 11110xxx */
-  else if((firstChar & 252) == 248) len = 5; /* 111110xx */
-  else if((firstChar & 254) == 252) len = 6; /* 1111110x */
-  else len = -1; /* error */
+  else len = -1; /* error: 5/6-byte forms and stray continuation bytes are invalid (RFC 3629) */
   return len;
 }
 
@@ -44,10 +42,21 @@ static unsigned int json_esc1(const unsigned char *s, unsigned int slen,
       break; // roll back and return
 
     if(c_len > 1) {
-      s += c_len;
-      slen -= c_len;
-      continue;
-    } else if(c_len < 0) { // bad utf8
+      // pass the sequence through verbatim only if its trailing bytes are valid
+      // continuation bytes (10xxxxxx); otherwise the lead is bad utf8 and a
+      // following '"', '\\' or control byte must not ride through unescaped
+      int k;
+      for(k = 1; k < c_len; k++)
+        if((s[k] & 0xC0) != 0x80)
+          break;
+      if(k == c_len) {
+        s += c_len;
+        slen -= c_len;
+        continue;
+      }
+      c_len = -1; // invalid sequence: handle as bad utf8 below
+    }
+    if(c_len < 0) { // bad utf8: drop the offending byte, resume after it
       *replacelen = 0;
       *new_s = s + 1;
       return (unsigned int)(s - orig_s);

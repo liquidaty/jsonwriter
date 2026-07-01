@@ -1,0 +1,7 @@
+# Keep the fuzz-image build context small and host-arch-agnostic: ./configure
+# and the build run fresh inside the container.
+.git
+build
+config.mk
+config.mk.log
+tests/fuzz-findings
