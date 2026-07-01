@@ -35,7 +35,12 @@ static unsigned int json_esc1(const unsigned char *s, unsigned int slen,
     return 0;
   }
 
-  while(slen && (c = *s) && (size_t)(s - orig_s) < max_output_size) {
+  /* Length-delimited: an embedded NUL is data (escaped to a \u00 hex escape
+   * by the JSON_ESC_CHAR path below), not a terminator -- do not stop the scan
+   * on it. slen and max_output_size bound the loop; NUL-terminated callers pass
+   * slen == strlen, so they still stop at the NUL exactly. */
+  while(slen && (size_t)(s - orig_s) < max_output_size) {
+    c = *s;
     c_len = UTF8_charLenC(*s);
 
     if(c_len > 0 && ((unsigned char)c_len > slen || (size_t)((s - orig_s) + c_len) > max_output_size))

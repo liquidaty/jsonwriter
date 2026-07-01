@@ -210,6 +210,22 @@ static void run_string_tests(void) {
   jsonwriter_end(h);
   done("strn-len", h, &s, "[\"hel\"]");
 
+  /* an embedded NUL is data, not a terminator: strn must escape it (\u0000)
+   * and keep writing the rest, not truncate the length-delimited string */
+  h = begin(&s, 1);
+  jsonwriter_start_array(h);
+  jsonwriter_cstrn(h, "a\0b", 3);
+  jsonwriter_end(h);
+  done("strn-embedded-nul", h, &s, "[\"a\\u0000b\"]");
+
+  /* same for a length-delimited object key */
+  h = begin(&s, 1);
+  jsonwriter_start_object(h);
+  jsonwriter_object_keyn(h, "k\0y", 3);
+  jsonwriter_cstr(h, "v");
+  jsonwriter_end(h);
+  done("keyn-embedded-nul", h, &s, "{\"k\\u0000y\":\"v\"}");
+
   /* quote + backslash escaping */
   h = begin(&s, 1);
   jsonwriter_start_array(h);
