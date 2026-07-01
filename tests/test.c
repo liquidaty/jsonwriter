@@ -477,6 +477,70 @@ static void run_error_tests(void) {
   free(s.p);
 }
 
+/* ------------------------------------------- caller-overridable nesting cap */
+
+/* Open arrays until refused; report how many opened. cap N allows N-1 opens
+ * (same conservative off-by-one the default 256 -> 255 exhibits). */
+static int open_until_refused(jsonwriter_handle h) {
+  int opened = 0;
+  while (jsonwriter_start_array(h) == 0)
+    opened++;
+  return opened;
+}
+
+static void run_max_nesting_tests(void) {
+  sink s;
+  jsonwriter_handle h;
+
+  /* lower the cap: 4 -> 3 opens allowed */
+  h = begin(&s, 1);
+  ok("set-max-nesting-lower-ok",
+     jsonwriter_set_max_nesting(h, 4) == jsonwriter_status_ok);
+  ok("set-max-nesting-lower", open_until_refused(h) == 3);
+  jsonwriter_end_all(h);
+  jsonwriter_delete(h);
+  free(s.p);
+
+  /* raise the cap above the 256 default: 300 -> 299 opens allowed */
+  h = begin(&s, 1);
+  ok("set-max-nesting-higher-ok",
+     jsonwriter_set_max_nesting(h, 300) == jsonwriter_status_ok);
+  ok("set-max-nesting-higher", open_until_refused(h) == 299);
+  jsonwriter_end_all(h);
+  jsonwriter_delete(h);
+  free(s.p);
+
+  /* zero is rejected, cap unchanged (still the default) */
+  h = begin(&s, 1);
+  ok("set-max-nesting-zero",
+     jsonwriter_set_max_nesting(h, 0) == jsonwriter_status_invalid_value);
+  ok("set-max-nesting-zero-unchanged", open_until_refused(h) == 255);
+  jsonwriter_end_all(h);
+  jsonwriter_delete(h);
+  free(s.p);
+
+  /* refused once a container is open */
+  h = begin(&s, 1);
+  jsonwriter_start_array(h);
+  ok("set-max-nesting-open",
+     jsonwriter_set_max_nesting(h, 8) == jsonwriter_status_misconfiguration);
+  jsonwriter_end_all(h);
+  jsonwriter_delete(h);
+  free(s.p);
+
+  /* writing works normally after a resize (within the new cap) */
+  h = begin(&s, 1);
+  jsonwriter_set_max_nesting(h, 4);
+  jsonwriter_start_object(h);
+  jsonwriter_object_key(h, "a");
+  jsonwriter_start_array(h);
+  jsonwriter_int(h, 1);
+  jsonwriter_int(h, 2);
+  jsonwriter_end(h); /* array */
+  jsonwriter_end(h); /* object */
+  done("max-nesting-functional", h, &s, "{\"a\":[1,2]}");
+}
+
 /* ----------------------------------------------- FILE* convenience path */
 
 static void run_file_tests(void) {
@@ -510,6 +574,7 @@ int main(void) {
   run_variant_tests();
   run_pretty_tests();
   run_error_tests();
+  run_max_nesting_tests();
   run_file_tests();
 
   printf("\n%d passed, %d failed\n", g_pass, g_fail);

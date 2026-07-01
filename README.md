@@ -34,6 +34,20 @@ jsonwriter_handle jsonwriter_new(
 
 e.g. `jsonwriter_handle h = jsonwriter_new(fwrite, stdout)`
 
+##### (optional) override the maximum nesting depth
+By default a writer allows up to `JSONWRITER_MAX_NESTING` (256) levels of nested
+arrays/objects. To raise or lower this per writer, call — before opening any
+container (i.e. at depth 0):
+
+```
+enum jsonwriter_status jsonwriter_set_max_nesting(jsonwriter_handle h, unsigned int max_nesting);
+```
+
+Returns `jsonwriter_status_ok`, or `jsonwriter_status_invalid_value` (`max_nesting`
+is 0 or too large), `jsonwriter_status_misconfiguration` (a container is already
+open), or `jsonwriter_status_out_of_memory`. The compile-time default itself can
+be changed with `-DJSONWRITER_MAX_NESTING=N`.
+
 ##### write your JSON
 For example:
 ```
